@@ -25,9 +25,9 @@ L_PR = 0.8;
 
 % Ventilator Settings
 FR = 15; % Breathing frequency
-PEEP = 0; % Positive End-Expiratory Pressure
+PEEP = 5; % Positive End-Expiratory Pressure
 PP = 10; % Peak Pressure
-E = 1; % Inhale:Exhale
+E = 2; % Inhale:Exhale
 
 %% Iterate through all patients
 for patientIndex = 1:numPatients
