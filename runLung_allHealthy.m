@@ -70,14 +70,14 @@ for patientIndex = 1:numPatients
     FEF2575v = FEF2575(patientIndex);
 
     % Mechanical parameters with variability
-    variability = 0.05; % 5% random deviation
-    LC = LC_ref * (1 + variability*randn()); % Lung compliance centered at 0.2
+    variability = 0.15; % percentage variation
+    LC = LC_ref * (1 + variability*randn()); 
     TC = TC_ref * (1 + variability*randn());
     CR = CR_ref * (1 + variability*randn());
     PR = PR_ref * (1 + variability*randn());
 
     % Clamp values within physiological limits
-    LC = max(min(LC, 0.3), 0.05);  % Lung compliance ~0.05-0.3
+    LC = max(min(LC, 0.3), 0.05);  
     TC = max(min(TC, 1.0), 0.05);
     CR = max(min(CR, 5.0), 0.5);
     PR = max(min(PR, 1.0), 0.05);
