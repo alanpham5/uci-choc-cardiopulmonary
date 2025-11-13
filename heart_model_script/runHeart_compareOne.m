@@ -1,6 +1,6 @@
 %% runHeart_compareOne.m
-% Healthy (defaults) vs Patient (Pt Key = 1) on the Simscape Heart model
- 
+% Healthy (defaults) vs Patient (by Pt Key) on the Simscape Heart model
+
 %% --- Robust project open (no cd required) ---
 clear; clc;
 
@@ -21,101 +21,141 @@ cands = { ...
     fullfile(proj.RootFolder,'choc-data-all.csv'), ...
     fullfile(proj.RootFolder,'Scripts','Work','choc-data-all.csv'), ...
     fullfile(proj.RootFolder,'Scripts','Work','choc-data-all_clean.csv')};
+
 infile = '';
 for c = 1:numel(cands)
     if isfile(cands{c}), infile = cands{c}; break; end
 end
 assert(~isempty(infile), 'Could not find choc-data-all*.csv in project or Scripts/Work.');
 
-%% --- Read with the *second* line as header (preserve original names) ---
-opts = detectImportOptions(infile, 'Delimiter', ',');
-opts.VariableNamesLine   = 2;        % real headers on line 2
-opts.DataLines           = [3 Inf];  % data start on line 3
-opts.VariableNamingRule  = 'preserve';
-T = readtable(infile, opts);
+%% --- Read table (use FIRST line as header, preserve exact names) ---
+T = readtable(infile, 'PreserveVariableNames', true);
 
 %% --- Select patient by Pt Key (safer than raw row index) ---
-ptKeyValue = 1;  % <— change if needed
-vars = string(T.Properties.VariableNames);
-m = (vars=="Pt Key") | (vars=="Pt Key ") | contains(vars,"Pt Key","IgnoreCase",true);
-assert(any(m),'Could not find a "Pt Key" column');
-ptKeyCol = char(vars(find(m,1)));
+ptKeyValue = 1;      % <— change this to choose another patient
 
-ix = find(T.(ptKeyCol)==ptKeyValue, 1);
-assert(~isempty(ix), 'No row found for Pt Key = %d', ptKeyValue);
+vars      = string(T.Properties.VariableNames);
+varsTrim  = strtrim(vars);
+varsLower = lower(varsTrim);
 
-%% --- Pull inputs using flexible column matching ---
-BSA     = getvFlex(T, {'BSA (m2)','BSA'},                   ix, 1.70);
-HR_pat  = getvFlex(T, {'HR','HR max','HR max %','HR max.1'},ix, 75);
+% Try common patterns first, then loose "pt" + "key" match
+maskExact = (varsTrim == "Pt Key") | (varsTrim == "PtKey") | (varsTrim == "Pt_Key");
+maskLoose = contains(varsLower,"pt") & contains(varsLower,"key");
 
-LVEDVi  = getvFlex(T, {'LVEDVi'},                           ix, NaN);
-LVESVi  = getvFlex(T, {'LVESVi'},                           ix, NaN);
-RVEDVi  = getvFlex(T, {'RVEDVi'},                           ix, NaN);
+mask = maskExact | maskLoose;
 
-SBP     = getvFlex(T, {'SBP','Systolic BP','Systolic'},     ix, NaN);
-DBP     = getvFlex(T, {'DBP','Diastolic BP','Diastolic'},   ix, NaN);
+if ~any(mask)
+    error('Could not find a "Pt Key"-like column. Available columns:\n%s', ...
+          strjoin(vars, ', '));
+end
 
-HI      = getvFlex(T, {'Mean HI','HI mean','Haller Index'}, ix, 2.5);
-IVCraw  = getvFlex(T, {'IVC compression?'},                 ix, 0);
-RVraw   = getvFlex(T, {'RV compression?'},                  ix, 0);
-IVCcomp = asFlag(IVCraw);
-RVcomp  = asFlag(RVraw);
+ptKeyCol = char(vars(find(mask,1)));   % first matching column
+
+ix = find(T.(ptKeyCol) == ptKeyValue, 1);
+assert(~isempty(ix), 'No row found for %s = %d', ptKeyCol, ptKeyValue);
+fprintf('Using row %d for %s = %g\n', ix, ptKeyCol, ptKeyValue);
+
+%% ---------- 1. PULL CORE FIELDS FROM CHOC TABLE ----------
+% Match runHeart_onePatient mapping as much as we need
+
+BSA        = getv(T, 'BSA (m2)',          ix, getv(T,'BSA',ix, 1.7));
+HRmax      = getv(T, 'HR max',            ix, NaN);
+HRmaxPct   = getv(T, 'HR max %predicted', ix, NaN);
+age        = getv(T, 'Age',               ix, 16);
+
+LVEDVi     = getvFlex(T, {'LVEDVi (mL/m2)','LVEDVi'}, ix, NaN);
+LVESVi     = getvFlex(T, {'LVESVi (mL/m2)','LVESVi'}, ix, NaN);
+RVEDVi     = getvFlex(T, {'RVEDVi (mL/m2)','RVEDVi'}, ix, NaN);
+RVESVi     = getvFlex(T, {'RVESVi (mL/m2)','RVESVi'}, ix, NaN);
+
+SBP        = getv(T, 'SBP',               ix, NaN);
+DBP        = getv(T, 'DBP',               ix, NaN);
+HI         = getv(T, 'Mean HI',           ix, 2.5);
+
+IVCraw     = getv(T, 'IVC compression?',  ix, 0);
+RVraw      = getv(T, 'RV compression?',   ix, 0);
+IVCcomp    = asFlag(IVCraw);
+RVcomp     = asFlag(RVraw);
+
+% Extra fields if you ever want to extend valve/Rx mapping further
+LVEF       = getvFlex(T, {'LVEF','LVEF%','LV EF %'}, ix, NaN);
+
+%% ---------- 2. HEART RATE FROM HRmax / HRmax %PRED ----------
+if ~isnan(HRmax)
+    HR_pat = 0.6 * HRmax;
+elseif ~isnan(HRmaxPct)
+    HRpredMax = 220 - age;
+    HR_pat    = 0.6 * (HRmaxPct/100) * HRpredMax;
+else
+    HR_pat = 75;   % fallback
+end
+
+fprintf('Patient PtKey=%g → HR≈%.1f bpm, BSA=%.2f, HI=%.2f\n', ...
+        ptKeyValue, HR_pat, BSA, HI);
 
 %% ---------- RUN 1: HEALTHY (defaults) ----------
 % Load pristine defaults
 run(fullfile(proj.RootFolder,'Scripts','Initialization.m'));
 
-% Use patient HR so time bases align, but otherwise keep defaults = "Healthy"
+% Use patient HR so time axes match, but keep other params as "healthy"
 assignin('base','HeartRate', HR_pat);
-tc_healthy = 60/HR_pat; 
-ts = 0.16 + 0.3*tc_healthy;        % same timing relation you used before
-assignin('base','tc', tc_healthy); 
-assignin('base','ts', ts);
+tc_healthy = 60/HR_pat;
+ts_healthy = 0.16 + 0.3*tc_healthy;
+assignin('base','tc', tc_healthy);
+assignin('base','ts', ts_healthy);
 
 % Simulate ~2 beats
-set_param(mdlName,'SignalLogging','on','StopTime',num2str(2*tc_healthy));
+set_param(mdlName,'SignalLogging','on','StopTime', num2str(2*tc_healthy));
 outHealthy = sim(mdlName);
 
-% Grab signals
-lvVolH  = tryGetVals(outHealthy,'VolumeInt_Left');   % LV volume (mL)
-lvofH   = tryGetVals(outHealthy,'LVOF');             % Aortic outflow (mL/s)
+% Grab a couple of reference signals (optional)
+lvVolH  = tryGetVals(outHealthy,'VolumeInt_Left');   %#ok<NASGU>
+lvofH   = tryGetVals(outHealthy,'LVOF');             %#ok<NASGU>
 
 %% ---------- RUN 2: PATIENT (mapped) ----------
 % Reload defaults, then apply mapping
 run(fullfile(proj.RootFolder,'Scripts','Initialization.m'));
 
-% Map initial volumes from indexed values (if present)
+% Initial volumes from indexed values (if present)
 if ~isnan(LVEDVi) && ~isnan(LVESVi) && ~isnan(BSA)
     LVEDV = LVEDVi * BSA; 
     LVESV = LVESVi * BSA;          % mL
-    assignin('base','X120', LVEDV);% initial LV volume
+    assignin('base','X120', LVEDV);  % initial LV volume
+else
+    LVEDV = NaN; LVESV = NaN;
 end
+
 if ~isnan(RVEDVi) && ~isnan(BSA)
     RVEDV = RVEDVi * BSA;          % mL
     assignin('base','X60', RVEDV); % initial RV volume
+else
+    RVEDV = NaN;
 end
 
 % Heart rate & timing
 assignin('base','HeartRate', HR_pat);
 tc_patient = 60/HR_pat; 
-ts = 0.16 + 0.3*tc_patient;
+ts_patient = 0.16 + 0.3*tc_patient;
 assignin('base','tc', tc_patient); 
-assignin('base','ts', ts);
+assignin('base','ts', ts_patient);
 
 % Optional arterial compliance scaling via SV/PP if BP + LV volumes exist
-if exist('LVEDV','var') && exist('LVESV','var') && ~isnan(SBP) && ~isnan(DBP)
+if ~isnan(SBP) && ~isnan(DBP) && ~isnan(LVEDV) && ~isnan(LVESV)
     PP   = max(5, SBP - DBP);            % mmHg
     SVlv = max(1, LVEDV - LVESV);        % mL
     Cart = SVlv / PP;                    % ~mmHg^-1·cm^3
     C1 = evalin('base','C1'); 
     C2 = evalin('base','C2');
-    ratio = C1/(C1+C2+eps);
+    ratio = C1 / (C1 + C2 + eps);
     assignin('base','C1', ratio*Cart);
     assignin('base','C2', (1-ratio)*Cart);
 end
 
 % HI-based venous/pulmonary compliance scaling (stronger on C3–C5)
-mult = max(0.5, 1 - 0.06*(HI - 2.5));
+mult = 1.0;
+if ~isnan(HI)
+    mult = max(0.5, 1 - 0.06*(HI - 2.5));
+end
 C3 = evalin('base','C3'); C4 = evalin('base','C4'); 
 C5 = evalin('base','C5'); C6 = evalin('base','C6');
 assignin('base','C3', C3*(0.85*mult + 0.15));
@@ -133,13 +173,15 @@ if RVcomp
     assignin('base','C5', 0.9 * evalin('base','C5'));
 end
 
-% Simulate ~2 beats (now tc_patient exists)
-set_param(mdlName,'SignalLogging','on','StopTime',num2str(2*tc_patient));
+% Simulate ~2 beats (patient)
+set_param(mdlName,'SignalLogging','on','StopTime', num2str(2*tc_patient));
 outPatient = sim(mdlName);
 
-% Grab signals
-lvVolP = tryGetVals(outPatient,'VolumeInt_Left');
-lvofP  = tryGetVals(outPatient,'LVOF');%% ---------- PLOT EVERYTHING (HEALTHY vs PATIENT) ----------
+% Grab signals (optional)
+lvVolP = tryGetVals(outPatient,'VolumeInt_Left'); %#ok<NASGU>
+lvofP  = tryGetVals(outPatient,'LVOF');           %#ok<NASGU>
+
+%% ---------- PLOT EVERYTHING (HEALTHY vs PATIENT) ----------
 % Flatten logsout -> map of name -> timeseries (safe against recursion)
 mapH = flattenLogs_safe(outHealthy.logsout);
 mapP = flattenLogs_safe(outPatient.logsout);
@@ -179,6 +221,19 @@ for i = 1:numel(namesCommon)
         legend('Patient','Healthy','Location','best');
     catch ME
         warning('Skipping "%s": %s', char(nm), ME.message);
+    end
+end
+
+%% ===== Local helper functions =====
+function v = getv(T, name, idx, def)
+% Safe getter from table T for column "name" and row idx; falls back to def
+    if any(strcmp(name, T.Properties.VariableNames))
+        v = T.(name)(idx);
+        if ismissing(v) || (isnumeric(v) && isempty(v))
+            v = def;
+        end
+    else
+        v = def;
     end
 end
 
@@ -227,7 +282,7 @@ end
 function tf = asFlag(x)
 % Robust boolean parser: supports logical, numeric, and common text flags.
 % True: 1, nonzero numbers, "Y","YES","TRUE","T","1"
-% False: 0, "N","NO","FALSE","F","0","/","", "NA","N/A"
+% False: 0, "N","NO","FALSE","F","0","/","","NA","N/A","NONE"
     if islogical(x)
         tf = x; 
         return;
@@ -259,9 +314,6 @@ function tf = asFlag(x)
     tf = false;
 end
 
-
-%% ===== Helpers you can paste at the end of the file =====
-
 function ts = tryGetVals(out, name)
 % Get a logged signal by name from logsout, or throw a helpful error.
     names = out.logsout.getElementNames;
@@ -288,7 +340,7 @@ function addElem_safe(m, elem, prefix, depth, visited)
 % Safe recursive descent with cycle guard and duplicate-key protection
     if depth > 6, return; end  % hard depth guard
 
-    cls  = class(elem);
+    cls   = class(elem);
     sigID = sprintf('%s|%s', cls, prefix);
 
     if isa(elem, 'Simulink.SimulationData.Signal')
