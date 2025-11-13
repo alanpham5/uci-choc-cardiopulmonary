@@ -20,7 +20,7 @@ run(fullfile(proj.RootFolder, "Scripts", "Initialization.m"));
 
 %% --- User inputs ---
 infile       = fullfile(proj.RootFolder, 'choc-data-all.csv');
-patientIndex = 3;   % <--- change this as needed
+patientIndex = 15;   % <--- change this as needed
 
 %% --- Load data ---
 T = readtable(infile, 'PreserveVariableNames', true);
@@ -340,16 +340,57 @@ disp('Run complete. Adjust mapping constants as needed and re-run.');
 
 %% ===== Local helper functions =====
 function v = getv(T, name, idx, def)
-% Safe getter from table T for column "name" and row idx; falls back to def
-    if any(strcmp(name, T.Properties.VariableNames))
-        v = T.(name)(idx);
-        if ismissing(v) || (isnumeric(v) && isempty(v))
-            v = def;
-        end
-    else
+% Safe getter from table T for column "name" and row idx; falls back to def.
+% - Unwraps cell arrays
+% - Converts numeric-looking text to numbers
+% - Leaves true text (like 'Y'/'N') alone for asFlag()
+
+    v = def;
+
+    if ~any(strcmp(name, T.Properties.VariableNames))
+        return;  % column not found → def
+    end
+
+    col = T.(name);
+
+    if idx > height(T)
+        return;  % out of range → def
+    end
+
+    val = col(idx);
+
+    % unwrap cellstr
+    if iscell(val) && ~isempty(val)
+        val = val{1};
+    end
+
+    % Missing or empty numeric → def
+    if ismissing(val) || (isnumeric(val) && isempty(val))
         v = def;
+        return;
+    end
+
+    % If already numeric, keep it
+    if isnumeric(val)
+        v = val;
+        return;
+    end
+
+    % For char/string: try to parse as a number
+    s = string(val);
+    num = str2double(s);
+
+    if ~isnan(num)
+        % e.g. '120' → 120
+        v = num;
+        return;
+    else
+        % Non-numeric text like 'Y', 'N', etc. → keep original
+        v = val;
+        return;
     end
 end
+
 
 function v = getvFlex(T, patterns, idx, def)
 % Get value from the first column whose name == or contains any pattern.
