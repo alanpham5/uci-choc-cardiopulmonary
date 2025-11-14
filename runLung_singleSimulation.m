@@ -1,5 +1,3 @@
-%% runPatientSim_Simulink_FullPlots_Labeled.m
-% Script to run patient-specific simulation using Simulink model
 % Computes patient-specific parameters and saves all 6 plots from Ventiladorcito GUI
 
 %% User parameters

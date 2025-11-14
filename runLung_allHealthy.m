@@ -1,4 +1,3 @@
-%% Healthy Patient Simulation Script (Updated with LC deviation and Alveolar Flow)
 clearvars; close all; rng('shuffle');
 
 %% User parameters
