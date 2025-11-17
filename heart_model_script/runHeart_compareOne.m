@@ -64,10 +64,10 @@ HRmax      = getv(T, 'HR max',              ix, NaN);
 HRmaxPct   = getv(T, 'HR max %predicted',   ix, NaN);
 age        = getv(T, 'Age',                 ix, 16);   % reasonable teen default
 
-LVEDVi     = getv(T, 'LVEDVi (mL/m2)',      ix, getv(T,'LVEDVi', ix, NaN));
-LVESVi     = getv(T, 'LVESVi (mL/m2)',      ix, getv(T,'LVESVi', ix, NaN));
-RVEDVi     = getv(T, 'RVEDVi (mL/m2)',      ix, getv(T,'RVEDVi', ix, NaN));
-RVESVi     = getv(T, 'RVESVi (mL/m2)',      ix, getv(T,'RVESVi', ix, NaN));
+LVEDVi     = getv(T, 'LVEDVi (mL/m2)',    patientIndex, getv(T,'LVEDVi (M 56-104 F 55-95)', patientIndex, NaN));
+LVESVi     = getv(T, 'LVESVi (mL/m2)',    patientIndex, getv(T,'LVESVi (M 16-40 F 15-35)', patientIndex, NaN));
+RVEDVi     = getv(T, 'RVEDVi (mL/m2)',    patientIndex, getv(T,'RVEDVi (M 60-108 F 58-94)', patientIndex, NaN));
+RVESVi     = getv(T, 'RVESVi (mL/m2)',    patientIndex, getv(T,'RVESVi (M 18-46 F 17-37)', patientIndex, NaN));
 
 SBP        = getv(T, 'SBP',                 ix, NaN);
 DBP        = getv(T, 'DBP',                 ix, NaN);
