@@ -2,7 +2,7 @@
 % Batch runner for all patients in CSV:
 %  1) For each row: reload defaults, apply SAME mapping as runHeart_onePatient
 %  2) Simulate ~2 beats
-%  3) Extract SV / CO / AoP stats over the last tc seconds (tc = 60/HR)
+%  3) Extract SV / CO / pressure/flow stats over the last tc seconds (tc = 60/HR)
 %  4) Save metrics + key inputs to heart_sim_results.csv
 
 clear; clc;
@@ -67,8 +67,8 @@ for patientIndex = 1:N
         Eesep       = getvFlex(T, {'E/e'' ratio (MV septal)','E/e septal','E/e'''}, patientIndex, NaN);
         O2PulsePct  = getvFlex(T, {'O2 Pulse %predicted','O2 pulse % predicted'},   patientIndex, NaN);
         VO2maxPct   = getvFlex(T, {'VO2 max %predicted','VO2max %predicted'},       patientIndex, NaN);
-        CCI         = getvFlex(T, {'CCI','PMC'},                                   patientIndex, NaN);
-        SternalTor  = getvFlex(T, {'Sternal Torsion Angle','Sternal torsion'},     patientIndex, NaN);
+        CCI         = getvFlex(T, {'CCI','PMC'},                                    patientIndex, NaN);
+        SternalTor  = getvFlex(T, {'Sternal Torsion Angle','Sternal torsion'},      patientIndex, NaN);
         RA_size     = getvFlex(T, {'RA size','RA area','RA volume'},               patientIndex, NaN);
         LA_size     = getvFlex(T, {'LA size','LA area','LA volume'},               patientIndex, NaN);
 
@@ -277,54 +277,107 @@ for patientIndex = 1:N
         names = out.logsout.getElementNames;
 
         %% ---------- 14. METRICS OVER LAST BEAT (tc seconds) ----------
-        SV = NaN; CO = NaN; AoP_mean = NaN; AoP_max = NaN; AoP_min = NaN;
+        % Initialize all metrics as NaN
+        SV = NaN; CO = NaN;
+        AoP_mean = NaN; AoP_max = NaN; AoP_min = NaN; AoP_std = NaN;
+        LVP_mean = NaN; LVP_max = NaN; LVP_min = NaN; LVP_std = NaN;
+        LVOF_mean = NaN; LVOF_max = NaN; LVOF_min = NaN; LVOF_std = NaN;
 
+        % Define time window t0..tEnd for last beat
         if any(strcmp('Aortic Pressure', names))
             ap = out.logsout.getElement('Aortic Pressure').Values;
             t  = ap.Time;
-            tEnd = t(end);
-            t0 = max(t(1), tEnd - tc);
-            idxWin = (t >= t0);
-
-            AoP_mean = mean(ap.Data(idxWin));
-            AoP_max  = max(ap.Data(idxWin));
-            AoP_min  = min(ap.Data(idxWin));
         else
             % If AoP missing, use any signal for time base
             anyName = names{1};
             tsAny   = out.logsout.getElement(anyName).Values;
             t  = tsAny.Time;
-            tEnd = t(end);
-            t0 = max(t(1), tEnd - tc);
-            idxWin = (t >= t0);
         end
 
+        tEnd = t(end);
+        t0   = max(t(1), tEnd - tc);
+        idxWin = (t >= t0);
+
+        % Aortic Pressure stats (if present)
+        if any(strcmp('Aortic Pressure', names))
+            ap = out.logsout.getElement('Aortic Pressure').Values;
+            AoP_mean = mean(ap.Data(idxWin));
+            AoP_max  = max(ap.Data(idxWin));
+            AoP_min  = min(ap.Data(idxWin));
+            AoP_std  = std(ap.Data(idxWin));
+        end
+
+        % Left Ventricular Pressure stats (if present)
+        if any(strcmp('Left Ventricular Pressure', names))
+            lvp = out.logsout.getElement('Left Ventricular Pressure').Values;
+            LVP_mean = mean(lvp.Data(idxWin));
+            LVP_max  = max(lvp.Data(idxWin));
+            LVP_min  = min(lvp.Data(idxWin));
+            LVP_std  = std(lvp.Data(idxWin));
+        end
+
+        % LVOF: stroke volume, CO, and stats
         if any(strcmp('LVOF', names))
             lvof = out.logsout.getElement('LVOF').Values;
+            % stroke volume over last beat
             SV   = trapz(lvof.Time(idxWin), lvof.Data(idxWin));  % mL/beat
             CO   = SV * HR / 1000;                               % L/min
+
+            LVOF_mean = mean(lvof.Data(idxWin));
+            LVOF_max  = max(lvof.Data(idxWin));
+            LVOF_min  = min(lvof.Data(idxWin));
+            LVOF_std  = std(lvof.Data(idxWin));
         end
 
         %% ---------- 15. RECORD ROW ----------
-        r = table(patientIndex, PtKey, BSA, HR, HI, LVEDVi, LVESVi, RVEDVi, RVESVi, ...
-                  SBP, DBP, SV, CO, AoP_mean, AoP_max, AoP_min, ...
-                  'VariableNames', {'patientIndex','PtKey','BSA','HR','HI', ...
-                                    'LVEDVi','LVESVi','RVEDVi','RVESVi', ...
-                                    'SBP','DBP','SV','CO','AoP_mean','AoP_max','AoP_min'});
+        r = table( ...
+            patientIndex, PtKey, BSA, HR, tc, HI, ...
+            LVEDVi, LVESVi, RVEDVi, RVESVi, ...
+            SBP, DBP, ...
+            SV, CO, ...
+            AoP_mean, AoP_max, AoP_min, AoP_std, ...
+            LVP_mean, LVP_max, LVP_min, LVP_std, ...
+            LVOF_mean, LVOF_max, LVOF_min, LVOF_std, ...
+            'VariableNames', { ...
+                'patientIndex','PtKey','BSA','HR','tc','HI', ...
+                'LVEDVi','LVESVi','RVEDVi','RVESVi', ...
+                'SBP','DBP', ...
+                'SV','CO', ...
+                'AoP_mean','AoP_max','AoP_min','AoP_std', ...
+                'LVP_mean','LVP_max','LVP_min','LVP_std', ...
+                'LVOF_mean','LVOF_max','LVOF_min','LVOF_std' ...
+            });
+
         results = [results; r];
 
         if mod(patientIndex,25)==0 || patientIndex <= 3
-            fprintf('OK %3d/%3d  PtKey=%g  HR=%5.1f  SV=%6.1f mL  CO=%5.2f L/min  AoPmean=%6.1f\n', ...
+            fprintf(['OK %3d/%3d  PtKey=%g  HR=%5.1f  ' ...
+                     'SV=%6.1f mL  CO=%5.2f L/min  AoPmean=%6.1f\n'], ...
                 patientIndex, N, PtKey, HR, SV, CO, AoP_mean);
         end
 
     catch ME
         warning('Patient %d failed: %s', patientIndex, ME.message);
-        r = table(patientIndex, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, ...
-                  NaN, NaN, NaN, NaN, NaN, NaN, NaN, ...
-          'VariableNames', {'patientIndex','PtKey','BSA','HR','HI', ...
-                            'LVEDVi','LVESVi','RVEDVi','RVESVi', ...
-                            'SBP','DBP','SV','CO','AoP_mean','AoP_max','AoP_min'});
+
+        % Make sure failure rows still have all columns (NaN filled)
+        r = table( ...
+            patientIndex, NaN, NaN, NaN, NaN, NaN, ...
+            NaN, NaN, NaN, NaN, ...
+            NaN, NaN, ...
+            NaN, NaN, ...
+            NaN, NaN, NaN, NaN, ...
+            NaN, NaN, NaN, NaN, ...
+            NaN, NaN, NaN, NaN, ...
+            'VariableNames', { ...
+                'patientIndex','PtKey','BSA','HR','tc','HI', ...
+                'LVEDVi','LVESVi','RVEDVi','RVESVi', ...
+                'SBP','DBP', ...
+                'SV','CO', ...
+                'AoP_mean','AoP_max','AoP_min','AoP_std', ...
+                'LVP_mean','LVP_max','LVP_min','LVP_std', ...
+                'LVOF_mean','LVOF_max','LVOF_min','LVOF_std' ...
+            });
+
         results = [results; r];
     end
 end
@@ -339,53 +392,26 @@ function v = getv(T, name, idx, def)
 % - Unwraps cell arrays
 % - Converts numeric-looking text to numbers
 % - Leaves true text (like 'Y'/'N') alone for asFlag()
-
     v = def;
-
-    if ~any(strcmp(name, T.Properties.VariableNames))
-        return;  % column not found → def
-    end
-
+    if ~any(strcmp(name, T.Properties.VariableNames)), return; end
     col = T.(name);
-
-    if idx > height(T)
-        return;  % out of range → def
-    end
-
+    if idx > height(T), return; end
     val = col(idx);
-
-    % unwrap cellstr
-    if iscell(val) && ~isempty(val)
-        val = val{1};
-    end
-
-    % Missing or empty numeric → def
+    if iscell(val) && ~isempty(val), val = val{1}; end
     if ismissing(val) || (isnumeric(val) && isempty(val))
-        v = def;
-        return;
+        v = def; return;
     end
-
-    % If already numeric, keep it
     if isnumeric(val)
-        v = val;
-        return;
+        v = val; return;
     end
-
-    % For char/string: try to parse as a number
     s = string(val);
     num = str2double(s);
-
     if ~isnan(num)
-        % e.g. '120' → 120
         v = num;
-        return;
     else
-        % Non-numeric text like 'Y', 'N', etc. → keep original
         v = val;
-        return;
     end
 end
-
 
 function v = getvFlex(T, patterns, idx, def)
 % Get value from the first column whose name == or contains any pattern.
