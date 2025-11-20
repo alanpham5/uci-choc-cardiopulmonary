@@ -351,40 +351,43 @@ outPatient = sim(mdlName);
 lvVolP = tryGetVals(outPatient,'VolumeInt_Left'); %#ok<NASGU>
 lvofP  = tryGetVals(outPatient,'LVOF');           %#ok<NASGU>
 
-%% ---------- PLOT EVERYTHING (HEALTHY vs PATIENT) ----------
+%% ---------- PLOT EVERYTHING (STEADY-STATE ONLY: beats 6–10) ----------
 mapH = flattenLogs_safe(outHealthy.logsout);
 mapP = flattenLogs_safe(outPatient.logsout);
-
+% Grouping control
 onlyGroups = true;
 press = {'Aortic Pressure','Left Ventricular Pressure','Right Venous Atrial Pressure','Pulmonary Pressure','PiLa(t)','Pv'};
 flows = {'LVOF','LVIF','RVOF','RVIF','LeftVentricleFlow'};
 voles = {'VolumeInt','VolumeInt_Left','EL(t)'};
 curated = [press, flows, voles];
-
 kH = string(keys(mapH));
 kP = string(keys(mapP));
-
 if onlyGroups
     curatedStr = string(curated);
     namesCommon = curatedStr(ismember(curatedStr, intersect(kH, kP)));
 else
     namesCommon = intersect(kH, kP);
 end
-
 namesCommon = sort(namesCommon);
-
+% Compute steady-state cutoff
+tCutH = 5 * tc_healthy; % skip first 5 beats
+tCutP = 5 * tc_patient;
 for i = 1:numel(namesCommon)
     nm = namesCommon(i);
     try
         tsH = mapH(char(nm));
         tsP = mapP(char(nm));
-
+        % Trim to steady-state region
+        keepH = tsH.Time >= tCutH;
+        keepP = tsP.Time >= tCutP;
+        tH = tsH.Time(keepH); dH = tsH.Data(keepH);
+        tP = tsP.Time(keepP); dP = tsP.Data(keepP);
         figure('Name', char(nm), 'NumberTitle', 'off');
-        plot(tsP.Time, tsP.Data, 'c', 'LineWidth', 1.8); hold on; grid on;
-        plot(tsH.Time, tsH.Data, 'y', 'LineWidth', 1.8);
+        plot(tP, dP, 'r', 'LineWidth', 1.8); hold on; grid on;
+        plot(tH, dH, 'k', 'LineWidth', 1.8);
         title(char(nm), 'Interpreter','none');
         xlabel('Time (s)');
-        ylabel( inferYLabel(char(nm)) );
+        ylabel(inferYLabel(char(nm)));
         legend('Patient','Healthy','Location','best');
     catch ME
         warning('Skipping "%s": %s', char(nm), ME.message);
