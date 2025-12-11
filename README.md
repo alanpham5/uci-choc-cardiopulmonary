@@ -63,3 +63,8 @@ This section describes the Simscape cardiovascular (heart + circulation) model a
 ## Requirements
 - MATLAB (2022a or newer recommended)
 - Simulink & Simscape
+
+## References
+- Gil, J. (n.d.). Simulation of respiratory mechanics on Simulink with GUI. MATLAB Central File Exchange. The MathWorks Inc. https://www.mathworks.com/matlabcentral/fileexchange/75335-simulation￾of-respiratory-mechanics-on-simulink-with-gui
+- Khan, M. A. N. (n.d.). Cardiovascular system in Simscape with ECMO machine. MATLAB Central File Exchange. The MathWorks Inc. https://www.mathworks.com/matlabcentral/fileexchange/125310-
+cardiovascular-system-in-simscape-with-ecmo-machine
